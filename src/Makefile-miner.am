@@ -77,4 +77,28 @@ gd_tracker_zpj_miner_LDADD = \
     $(DOCUMENTS_LIBS) \
     $(NULL)
 
+libexec_PROGRAMS += gd-tracker-flickr-miner
+
+gd_tracker_flickr_miner_SOURCES = \
+    miner/flickr-miner-main.c \
+    miner/gd-miner.c \
+    miner/gd-miner.h \
+    miner/gd-flickr-miner.c \
+    miner/gd-flickr-miner.h \
+    $(NULL)
+
+gd_tracker_flickr_miner_CFLAGS = \
+    -DG_DISABLE_DEPRECATED \
+    -I$(top_srcdir)/src/lib \
+    $(MINER_CFLAGS) \
+    $(DOCUMENTS_CFLAGS) \
+    $(NULL)
+
+gd_tracker_flickr_miner_LDADD = \
+    libgdminer-1.0.la  \
+    libgdprivate-1.0.la  \
+    $(MINER_LIBS) \
+    $(DOCUMENTS_LIBS) \
+    $(NULL)
+
 EXTRA_DIST += miner/miner-main.c
