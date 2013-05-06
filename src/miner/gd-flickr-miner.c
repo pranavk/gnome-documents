@@ -24,20 +24,145 @@
 
 #include "gd-flickr-miner.h"
 
-/** TODO: find out how to create this identifier */
+/** FIXME find out how to create this identifier */
 #define MINER_IDENTIFIER "gd:flickr:miner:30058620-777c-47a3-a19c-a6cdf4a315c4"
 
-#define GRL_LOG_DOMAIN_DEFAULT flickr_miner_grl_log_domain
-GRL_LOG_DOMAIN_STATIC(flickr_miner_grl_log_domain);
+#define GRILO_TARGET_PLUGIN "grl-flickr"
 
+/* ==================== DECLARATIONS ==================== */
+static void
+query_flickr (GdAccountMinerJob *job,
+              GError **error);
+
+static GObject *
+create_service (GdMiner *self,
+                GoaObject *object);
+
+static void
+account_miner_job_browse_container (GdAccountMinerJob *job,
+                                    GrlSource         *source,
+                                    GrlMedia          *container);
+static gboolean
+account_miner_job_process_entry (GdAccountMinerJob *job,
+                                 GrlMedia *entry,
+                                 GError   **error);
+static void
+browse_container_cb (GrlSource *  source,
+                     guint        operation_id,
+                     GrlMedia *   media,
+                     guint        remaining,
+                     gpointer     user_data,
+                     const GError *error);
+static void
+source_added_cb (GrlRegistry *registry,
+                 GrlSource   *source,
+                 gpointer     user_data);
+
+/* ==================== GOBJECT ==================== */
 
 G_DEFINE_TYPE (GdFlickrMiner, gd_flickr_miner, GD_TYPE_MINER)
 
+static void
+gd_flickr_miner_init (GdFlickrMiner *self)
+{
+}
+
+static void
+gd_flickr_miner_class_init (GdFlickrMinerClass *klass)
+{
+  GdMinerClass *miner_class = GD_MINER_CLASS (klass);
+
+  GrlRegistry *registry;
+  GError *error = NULL;
+
+  /* TODO get and assign provider type from plugin */
+  miner_class->goa_provider_type = "flickr";
+  miner_class->miner_identifier = MINER_IDENTIFIER;
+  miner_class->version = 1;
+
+  miner_class->create_service = create_service;
+  miner_class->query = query_flickr;
+  
+  /* TODO unload plugins and so on */
+  //miner_class->finalize = gd_flickr_miner_class_finalaze;
+  
+  /* TODO
+   * add operation_id to allow cancellabe browsing
+   */
+
+  grl_init(NULL, NULL);
+
+  registry = grl_registry_get_default();
+
+
+
+  /* FIXME: make the path relative and find universal way */
+  /* we can use load_all, since create service returns only flickr plugin */
+  if (! grl_registry_load_plugin(registry,
+                                  "/home/marek/local/lib64/grilo-0.2/libgrlflickr.so",
+                                  &error))
+  {
+    g_error ("Flickr Miner cannot be loaded. Cannot load flickr "
+             "plugin (Grilo) :: dbg error = %s\n", error->message);
+  }
+}
+
+/* ==================== "EXPORTED" FUNCTIONS ==================== */
+static void
+query_flickr (GdAccountMinerJob *job,
+              GError **error)
+{
+  g_debug ("Querying flickr");
+
+  GrlRegistry *registry;
+  GList *m, *sources;
+ 
+  registry = grl_registry_get_default ();
+
+  /* enable asyncronous adding of grilo sources */
+  /* TODO - solve possible multiple browsing of sources */
+  g_signal_connect (registry, "source-added",
+                    G_CALLBACK (source_added_cb), job);
+
+  /* TODO - dont do that, do it all via source-added */
+  sources = grl_plugin_get_sources (GRL_PLUGIN (job->service));
+
+  for (m = sources; m != NULL; m = g_list_next (m))
+  {
+    /* TODO what to do with the error? */
+    account_miner_job_browse_container (job,
+                                        GRL_SOURCE (m->data),
+                                        NULL);
+  }
+}
+
+/* Fix me - in generialized version return GrlRegistry and
+ * in create service just configure it (and return) */
+static GObject *
+create_service (GdMiner *self,
+                GoaObject *object)
+{ 
+  GrlRegistry *registry;
+  GrlPlugin *plugin;
+
+  registry = grl_registry_get_default ();
+  plugin = grl_registry_lookup_plugin (registry, GRILO_TARGET_PLUGIN);
+
+  if (plugin == NULL)
+    g_error ("Could not find services (grilo plugin: %s)", GRILO_TARGET_PLUGIN);
+
+  return G_OBJECT (g_object_ref (plugin));
+}
+
+/* ==================== PRIVATE FUNCTIONS ==================== */
+
 static gboolean
 account_miner_job_process_entry (GdAccountMinerJob *job,
-                                /* ZpjSkydriveEntry *entry*/ gpointer *entry,
-                                 GError **error)
+                                 GrlMedia *entry,
+                                 GError   **error)
 {
+  g_debug ("Got media %s from source %s", grl_media_get_title (entry),
+                                          grl_media_get_source (entry));
   /*
   GDateTime *created_time, *updated_time;
   gchar *contact_resource;
@@ -201,122 +326,93 @@ account_miner_job_process_entry (GdAccountMinerJob *job,
   if (*error != NULL)
     return FALSE;
 */
+  
+  g_object_unref (entry);
+
   return TRUE;
 }
 
 static void
-account_miner_job_traverse_folder (GdAccountMinerJob *job,
-                                   const gchar *folder_id,
-                                   GError **error)
+account_miner_job_browse_container (GdAccountMinerJob *job,
+                                    GrlSource *source,
+                                    GrlMedia  *container)
 {
- /* GList *entries, *l;
+  g_return_if_fail (GRL_IS_SOURCE (source));
+  g_return_if_fail (container == NULL || GRL_IS_MEDIA  (container));
 
-  entries = zpj_skydrive_list_folder_id (ZPJ_SKYDRIVE (job->service),
-                                         folder_id,
-                                         job->cancellable,
-                                         error);
-  if (*error != NULL)
-    goto out;
+  /* Skip public source */
+  if (g_strcmp0 (grl_source_get_name (source), "Flickr") == 0) {
+    g_debug ("Skipping public source");
+    return;
+  }
 
-  for (l = entries; l != NULL; l = l->next)
+  GrlOperationOptions *ops;
+  const GList *keys;
+  gint op_id;
+
+  /* get possiblly all */
+  ops = grl_operation_options_new (NULL);
+  keys = grl_source_supported_keys (source);
+
+  op_id = grl_source_browse (source, container,
+                             keys, ops, browse_container_cb, job);
+
+  /* TODO use op_id to make it cancellable */
+
+  g_object_unref (ops);
+}
+
+static void
+browse_container_cb (GrlSource *source,
+                     guint operation_id,
+                     GrlMedia *media,
+                     guint remaining,
+                     gpointer user_data,
+                     const GError *error)
+{
+  if (error != NULL)
+  {
+    g_warning ("%s", error->message);
+    return;
+  }
+
+  GError *err = NULL;
+
+  if (media != NULL)
+  {
+    if (GRL_IS_MEDIA_BOX (media) && source != NULL)
     {
-      ZpjSkydriveEntry *entry = (ZpjSkydriveEntry *) l->data;
-      const gchar *id;
-
-      id = zpj_skydrive_entry_get_id (entry);
-
-      if (ZPJ_IS_SKYDRIVE_FOLDER (entry))
-        {
-          account_miner_job_traverse_folder (job, id, error);
-          if (*error != NULL)
-            goto out;
-        }
-      else if (ZPJ_IS_SKYDRIVE_PHOTO (entry))
-        continue;
-
-      account_miner_job_process_entry (job, entry, error);
-
-      if (*error != NULL)
-        {
-          g_warning ("Unable to process entry %p: %s", l->data, (*error)->message);
-          g_clear_error (error);
-        }
+      account_miner_job_browse_container ((GdAccountMinerJob *) user_data,
+                                          source, media);
+      g_object_unref (media);
     }
+    else if (GRL_IS_MEDIA_IMAGE (media))
+    {
+      /* TODO now is process entry undefined, but if it will be
+       * some kind of async, we need to handle errors somehow */
+      account_miner_job_process_entry ((GdAccountMinerJob *) user_data,
+                                       media, &err);
 
- out:
-  if (entries != NULL)
-    g_list_free_full (entries, g_object_unref);
-  */
+      if (err != NULL)
+      {
+        g_warning ("%s", err->message);
+        g_error_free (err);
+      }
+    }
+    else
+    {
+      /* some future extension? */
+      return;
+    }
+  }
 }
 
 static void
-query_flickr (GdAccountMinerJob *job,
-              GError **error)
+source_added_cb (GrlRegistry *registry,
+                 GrlSource   *source,
+                 gpointer     user_data)
 {
-  account_miner_job_traverse_folder (job,
-                                     NULL,
-                                     error);
-}
+  g_debug ("New source: %s", grl_source_get_name (source));
 
-static GObject *
-create_service (GdMiner *self,
-                GoaObject *object)
-{
-  /*
-   * TODO:
-   * kod jako v grl-flickru, ktery vytvori config a vlozi ho
-   * do grila?? Mrkni na grilo, kdyby bylo flickr-forced, tak
-   * se automaticky v grilu vytvori vsechny flickr sourcy,
-   * tak je to potreba nejak ohandlovat.. Asi by bylo jeste jednodussi
-   * udelat obecny grilo-miner a ten pak specializovat na flickr??
-   * Uvidime.. chce to studovat. */
-   /**
-    * Jinak toto funguje tak, ze to vrati objekt, pres ktery se budou
-    * ziskavat ty data z flickru (ten objekt se ulozi do objectu
-    * GAccountMinerJob a pres ten to pak budu pouzivat
-    * */
-
-  /* use flickr-forced first
-   * TODO: use configuration via GoaObject */
- /*
-  GrlRegistry *registry;
-  GrlMedia *service;
-
-  registry = grl_registry_get_default();
-
-  if (! grl_registry_load_plugin(registry, "grl-flickr", NULL))
-    g_error ("Flickr Miner cannot be loaded. Cannot load flickr"
-              "plugin (Grilo)");
-
-  GrlMedia *service = grl_media_new ();
-
-  return G_OBJECT (service);
-  */
-  GRL_ERROR("create_service");
-  g_printerr("create_service");
-}
-
-static void
-gd_flickr_miner_init (GdFlickrMiner *self)
-{
-  GRL_ERROR("miner_init");
-  g_printerr("miner_init");
-
-  GRL_LOG_DOMAIN_INIT(flickr_miner_grl_log_domain, "grilo");
-}
-
-static void
-gd_flickr_miner_class_init (GdFlickrMinerClass *klass)
-{
-  GdMinerClass *miner_class = GD_MINER_CLASS (klass);
-
-  miner_class->goa_provider_type = "flickr";
-  miner_class->miner_identifier = MINER_IDENTIFIER;
-  miner_class->version = 1;
-
-  miner_class->create_service = create_service;
-  miner_class->query = query_flickr;
-
-  grl_init(NULL, NULL);
-  g_critical ("flickr miner class init after grl_init!");
+  account_miner_job_browse_container ((GdAccountMinerJob *) user_data, source, NULL);
 }
