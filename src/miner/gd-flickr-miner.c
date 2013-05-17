@@ -84,7 +84,10 @@ browse_container_cb (GrlSource *source,
                      gpointer user_data,
                      const GError *error);
 
-static void delete_entry (struct entry *ent);
+static inline struct entry *create_entry (GrlMedia *media, GrlMedia *parent,
+                                    GrlSource *source, struct data *data);
+
+static inline void delete_entry (struct entry *ent);
 
 /* ==================== GOBJECT ==================== */
 
@@ -156,7 +159,7 @@ query_flickr (GdAccountMinerJob *job,
   for (m = sources; m != NULL; m = g_list_next (m))
   {
     g_debug ("Got source: %s", grl_source_get_name (GRL_SOURCE (m->data)));
-
+/*
     ent = g_slice_alloc (sizeof (struct entry));
 
     ent->source = GRL_SOURCE (m->data);
@@ -165,7 +168,8 @@ query_flickr (GdAccountMinerJob *job,
     ent->data = &d;
 
     g_hash_table_add (d.entries, ent);
-
+*/
+    ent = create_entry (NULL, NULL, GRL_SOURCE (m->data), &d);
     account_miner_job_browse_container (ent);
   }
 
@@ -183,6 +187,9 @@ query_flickr (GdAccountMinerJob *job,
   }
 
   g_hash_table_destroy (d.entries);
+
+  /* we dont return object */
+  job->service = NULL;
 
   g_debug ("Ending query_flickr (delete me)");
 }
@@ -215,8 +222,8 @@ account_miner_job_browse_container (struct entry *entry)
   g_return_if_fail (entry->parent == NULL || GRL_IS_MEDIA (entry->parent));
   g_return_if_fail (GRL_IS_SOURCE (entry->source));
 
-  g_debug ("Browsing container %s of %s (%s)", entry->media ? grl_media_get_title (entry->media) : "[root]",
-                                          entry->parent ? grl_media_get_title (entry->parent) : "[root]",
+  g_debug ("Browsing container %s of %s (from %s)", entry->media ? grl_media_get_title (entry->media) : "root",
+                                          entry->parent ? grl_media_get_title (entry->parent) : "root",
                                           grl_source_get_name (entry->source));
 
   /* Skip public source */
@@ -237,7 +244,8 @@ account_miner_job_browse_container (struct entry *entry)
   grl_source_browse (entry->source, entry->media,
                      keys, ops, browse_container_cb, entry);
 
-  g_object_unref (ops);
+  /*TODO uncomment */
+  //g_object_unref (ops);
 }
 
 static gboolean
@@ -445,16 +453,14 @@ browse_container_cb (GrlSource *source,
   struct entry *parent_ent= (struct entry *) user_data;
   GError *err = NULL;
 
+  if (remaining == 0)
+  {
+    delete_entry (parent_ent);
+  }
+
   if (media != NULL)
   {
-    ent = g_slice_alloc (sizeof (struct entry));
-
-    ent->source = source;
-    ent->media  = media;
-    ent->parent = parent_ent->media; 
-    ent->data   = parent_ent->data;
-
-    g_hash_table_add (ent->data->entries, ent);
+    ent = create_entry (media, parent_ent->media, source, parent_ent->data);
 
     if (GRL_IS_MEDIA_BOX (media) && source != NULL)
     {
@@ -473,17 +479,16 @@ browse_container_cb (GrlSource *source,
       delete_entry (ent);
     }
   }
-
-  /* ===== clean up ===== */
-  if (remaining == 0)
-  {
-    delete_entry (parent_ent);
-  }
 }
 
 void delete_entry (struct entry *ent)
 {
   g_return_if_fail (ent != NULL);
+
+  g_debug ("Deleting entry: %s [parent: %s, source: %s]", 
+                                            ent->media ? grl_media_get_title (ent->media) : "null",
+                                            ent->parent ? grl_media_get_title (ent->parent) : "null",
+                                            grl_source_get_name (ent->source));
 
   if (ent->media != NULL)
     g_object_unref (ent->media);
@@ -501,4 +506,28 @@ void delete_entry (struct entry *ent)
   {
     g_warning ("Attempt to delete wrong entry");
   }
+}
+
+struct entry *create_entry (GrlMedia *media, GrlMedia *parent,
+                                    GrlSource *source, struct data *data)
+{
+    struct entry *ent;
+  
+    g_debug ("Creating entry: %s [parent: %s, source: %s]", 
+                                            media ? grl_media_get_title (media) : "null",
+                                            parent ? grl_media_get_title (parent) : "null",
+                                            grl_source_get_name (source));
+
+    ent = g_slice_alloc (sizeof (struct entry));
+
+    ent->source = source;
+    ent->media  = media;
+    ent->parent = (parent != NULL) ?
+                    g_object_ref (parent)
+                    : NULL; 
+    ent->data   = data;
+
+    g_hash_table_add (ent->data->entries, ent);
+
+    return ent;
 }
