@@ -32,13 +32,19 @@
 
 /** FIXME find out how to create this identifier */
 #define MINER_IDENTIFIER "gd:flickr:miner:30058620-777c-47a3-a19c-a6cdf4a315c4"
+#define MINER_VERSION 1
 
 #define GRILO_TARGET_PLUGIN "grl-flickr"
-#define FLICKR_MINER_MAX_BROWSE_THREADS 1
-#define POOL_WAIT_SEC 3
+#define GRILO_PUBLIC_SOURCE_NAME "Flickr"
+#define GOA_PROVIDER_TYPE "flickr"
+
+#define POOL_WAIT_SEC 2
 
 /* ==================== DECLARATIONS ==================== */
 
+/*
+ * Data for callbacks
+ */
 struct data
 {
   GHashTable        *entries;
@@ -64,7 +70,6 @@ static GObject *
 create_service (GdMiner *self,
                 GoaObject *object);
 
-/* FIXME -> can delete job argument since it's present in pool_data struct */
 static void
 account_miner_job_browse_container (struct entry *entry);
 
@@ -107,9 +112,9 @@ gd_flickr_miner_class_init (GdFlickrMinerClass *klass)
   GError *error = NULL;
 
   /* TODO get and assign provider type from plugin */
-  miner_class->goa_provider_type = "flickr";
+  miner_class->goa_provider_type = GOA_PROVIDER_TYPE;
   miner_class->miner_identifier = MINER_IDENTIFIER;
-  miner_class->version = 1;
+  miner_class->version = MINER_VERSION;
 
   miner_class->create_service = create_service;
   miner_class->query = query_flickr;
@@ -117,20 +122,14 @@ gd_flickr_miner_class_init (GdFlickrMinerClass *klass)
   /* TODO unload plugins and so on */
   //miner_class->finalize = gd_flickr_miner_class_finalaze;
 
-  /* TODO
-   * add operation_id to allow cancellabe browsing
-   */
-
   grl_init(NULL, NULL);
 
   registry = grl_registry_get_default();
 
-  if (! grl_registry_load_plugin_by_id (registry, "grl-flickr", &error))
+  if (! grl_registry_load_plugin_by_id (registry, GRILO_TARGET_PLUGIN, &error))
   {
-    g_error ("Flickr Miner cannot be loaded. Cannot load flickr "
-             "plugin (Grilo) :: dbg error = %s\n", error->message);
+    g_error ("%s", error->message);
   }
-
 }
 
 
@@ -146,71 +145,82 @@ query_flickr (GdAccountMinerJob *job,
   struct entry *ent;
   struct data  d;
 
-  /* just make sure we wont be called more times */
+  /* just make sure we wont be called more times, @see create_service */
   if (GPOINTER_TO_INT (job->service) == 0)
     return;
 
-  d.job = job;
+  /* data for callback functions */
+  d.job     = job;
   d.entries = g_hash_table_new (NULL, NULL);
 
-  registry = grl_registry_get_default ();
-  sources = grl_registry_get_sources (registry, FALSE);
+  registry  = grl_registry_get_default ();
+  sources   = grl_registry_get_sources (registry, FALSE);
 
+  /* browse found sources */
+  /* TODO asynchronous adding of sources? grilo's source-added signal */
   for (m = sources; m != NULL; m = g_list_next (m))
   {
     g_debug ("Got source: %s", grl_source_get_name (GRL_SOURCE (m->data)));
-/*
-    ent = g_slice_alloc (sizeof (struct entry));
 
-    ent->source = GRL_SOURCE (m->data);
-    ent->media  = NULL;
-    ent->parent = NULL;
-    ent->data = &d;
-
-    g_hash_table_add (d.entries, ent);
-*/
     ent = create_entry (NULL, NULL, GRL_SOURCE (m->data), &d);
     account_miner_job_browse_container (ent);
   }
 
-  /* Wait for pending threads */
+  /* Wait for pending browsings */
+  /* Explanation: when calling browse, we add it's data it uses into hash.
+   * When the browse is finished, we remove the data from the hash.
+   * Here we are waiting for the hash to be empty => which means all browsings
+   * were finished. It prevents from prematurely ending of query_flickr (since
+   * browsing is asynchronous) and therefore from freeing job during the usage */
   while (1)
   {
-    // dont hurry, wait POOL_WAIT_SEC before asking for state
+    /* dont hurry, wait POOL_WAIT_SEC before asking for state */
     g_usleep (G_USEC_PER_SEC * POOL_WAIT_SEC);
 
     if (g_hash_table_size (d.entries) == 0)
     {
-      g_debug ("No pending job. Quiting query..");
+      g_debug ("No active browsing. Quiting query..");
       break;
     }
   }
 
   g_hash_table_destroy (d.entries);
 
-  /* we dont return object */
+  /* we dont return object in create_service
+   * and freeing job attempts to unref job->service */
   job->service = NULL;
-
-  g_debug ("Ending query_flickr (delete me)");
 }
 
+/*
+ * GdMiner calls create_service and query on each GOA object of
+ * klass->goa_provider_type type, but flickr plugin loads
+ * all flickr accounts at once, so all the account would
+ * be browsed more than once.
+ * create_service therefore returns 1 if it is the first call of query
+ * (refresh_db action). All other times it returns 0 (query_flickr then
+ * does nothing)
+ *
+ * FIXME what if order of GOA object changes?
+ */
 static GObject *
 create_service (GdMiner *self,
                 GoaObject *object)
 {
-  /* only prevent from multiple calling */
-  /* TODO add support for multiple calling of refresh_db (remember first account id and compare */
-  static gint s = 0;
+  /* it's a sort of hack, not nice..
+   * only prevent from multiple calling of query */
+  static  gchar first_id[100] = "";
+  const   gchar *cur_id = goa_account_get_id (goa_object_peek_account (object));
 
+  /* is it first call? */
+  if (first_id[0] == 0)
+    stpcpy (first_id, cur_id);
 
-  if (s == 0)
-  {
-    s = 1;
+  if (g_strcmp0 (first_id, cur_id) == 0)
     return GINT_TO_POINTER (1);
-  }
   else
     return GINT_TO_POINTER (0);
 }
+
 
 /* ==================== PRIVATE FUNCTIONS ==================== */
 
@@ -222,7 +232,7 @@ account_miner_job_browse_container (struct entry *entry)
   g_return_if_fail (entry->parent == NULL || GRL_IS_MEDIA (entry->parent));
   g_return_if_fail (GRL_IS_SOURCE (entry->source));
 
-  g_debug ("Browsing container %s of %s (from %s)", entry->media ? grl_media_get_title (entry->media) : "root",
+  g_debug ("Browsing container %s of %s (from %s)", entry->media ?grl_media_get_title (entry->media) : "root",
                                           entry->parent ? grl_media_get_title (entry->parent) : "root",
                                           grl_source_get_name (entry->source));
 
@@ -235,17 +245,16 @@ account_miner_job_browse_container (struct entry *entry)
 
   GrlOperationOptions *ops;
   const GList *keys;
-  GError *err = NULL;
 
   /* get possiblly all */
   keys = grl_source_supported_keys (entry->source);
   ops = grl_operation_options_new (grl_source_get_caps (entry->source, GRL_OP_BROWSE));
 
+  /* FIXME make the browsing cancellable */
   grl_source_browse (entry->source, entry->media,
                      keys, ops, browse_container_cb, entry);
 
-  /*TODO uncomment */
-  //g_object_unref (ops);
+  g_object_unref (ops);
 }
 
 static gboolean
@@ -450,9 +459,10 @@ browse_container_cb (GrlSource *source,
   }
 
   struct entry *ent;
-  struct entry *parent_ent= (struct entry *) user_data;
+  struct entry *parent_ent = (struct entry *) user_data;
   GError *err = NULL;
 
+  /* Remove entry from hash if we are finished */
   if (remaining == 0)
   {
     delete_entry (parent_ent);
@@ -474,6 +484,7 @@ browse_container_cb (GrlSource *source,
       {
         g_warning ("%s", err->message);
         g_error_free (err);
+        err = NULL;
       }
 
       delete_entry (ent);
@@ -481,14 +492,10 @@ browse_container_cb (GrlSource *source,
   }
 }
 
+
 void delete_entry (struct entry *ent)
 {
   g_return_if_fail (ent != NULL);
-
-  g_debug ("Deleting entry: %s [parent: %s, source: %s]", 
-                                            ent->media ? grl_media_get_title (ent->media) : "null",
-                                            ent->parent ? grl_media_get_title (ent->parent) : "null",
-                                            grl_source_get_name (ent->source));
 
   if (ent->media != NULL)
     g_object_unref (ent->media);
@@ -508,15 +515,11 @@ void delete_entry (struct entry *ent)
   }
 }
 
+
 struct entry *create_entry (GrlMedia *media, GrlMedia *parent,
                                     GrlSource *source, struct data *data)
 {
     struct entry *ent;
-  
-    g_debug ("Creating entry: %s [parent: %s, source: %s]", 
-                                            media ? grl_media_get_title (media) : "null",
-                                            parent ? grl_media_get_title (parent) : "null",
-                                            grl_source_get_name (source));
 
     ent = g_slice_alloc (sizeof (struct entry));
 
