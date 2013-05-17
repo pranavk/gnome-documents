@@ -39,23 +39,21 @@
 
 /* ==================== DECLARATIONS ==================== */
 
+struct data
+{
+  GHashTable        *entries;
+  GdAccountMinerJob *job;
+  /* Mutex ? */
+};
+
 /*
- * GrlMedia with it's source and parent
+ * GrlMedia with it's source and parent and data used by callbacks
  */
 struct entry {
   GrlSource *source;
-  GrlMedia  *folder;
+  GrlMedia  *media;
   GrlMedia  *parent;
-};
-
-struct pool_data
-{
-  GThreadPool       *pool;
-  gboolean          active;
- // GMutex            *mutex;   /* used when manipulating with entries */
-  GHashTable        *entries; /* data given to pool --> need to be freed */
-  gint              sources_no;
-  GdAccountMinerJob *job;
+  struct data *data;
 };
 
 static void
@@ -68,19 +66,25 @@ create_service (GdMiner *self,
 
 /* FIXME -> can delete job argument since it's present in pool_data struct */
 static void
-account_miner_job_browse_container (GdAccountMinerJob *job,
-                                    struct entry      *entry,
-                                    struct pool_data  *pool);
-static gboolean
-account_miner_job_process_entry (GdAccountMinerJob *job,
-                                 GrlMedia *entry,
-                                 GError   **error);
+account_miner_job_browse_container (struct entry *entry);
 
+static gboolean
+account_miner_job_process_entry (struct entry *entry, GError **error);
+
+/*
 static void
 source_added_cb (GrlRegistry *registry, GrlSource *source, gpointer user_data);
+*/
 
 static void
-pool_push (gpointer data, gpointer user_data);
+browse_container_cb (GrlSource *source,
+                     guint operation_id,
+                     GrlMedia *media,
+                     guint remaining,
+                     gpointer user_data,
+                     const GError *error);
+
+static void delete_entry (struct entry *ent);
 
 /* ==================== GOBJECT ==================== */
 
@@ -100,16 +104,16 @@ gd_flickr_miner_class_init (GdFlickrMinerClass *klass)
   GError *error = NULL;
 
   /* TODO get and assign provider type from plugin */
-  miner_class->goa_provider_type = "flickr"; /* leave blank - we dont need intf to search something for us */
+  miner_class->goa_provider_type = "flickr";
   miner_class->miner_identifier = MINER_IDENTIFIER;
   miner_class->version = 1;
 
   miner_class->create_service = create_service;
   miner_class->query = query_flickr;
-  
+
   /* TODO unload plugins and so on */
   //miner_class->finalize = gd_flickr_miner_class_finalaze;
-  
+
   /* TODO
    * add operation_id to allow cancellabe browsing
    */
@@ -123,7 +127,7 @@ gd_flickr_miner_class_init (GdFlickrMinerClass *klass)
     g_error ("Flickr Miner cannot be loaded. Cannot load flickr "
              "plugin (Grilo) :: dbg error = %s\n", error->message);
   }
-  
+
 }
 
 
@@ -136,34 +140,17 @@ query_flickr (GdAccountMinerJob *job,
   GrlRegistry *registry;
   GList *m, *sources;
 
-  struct entry    *ent;
-  struct pool_data pooldata;
+  struct entry *ent;
+  struct data  d;
 
-  gulong sig_handler;
-
+  /* just make sure we wont be called more times */
   if (GPOINTER_TO_INT (job->service) == 0)
     return;
 
-  GThreadPool *p = g_thread_pool_new (pool_push, &pooldata,
-                                      FLICKR_MINER_MAX_BROWSE_THREADS,
-                                      /*FALSE, NULL); // FALSE ==> no errors */
-                                      TRUE, error);
-
-  if (*error != NULL)
-  {
-    g_warning ("Pool: %s", (*error)->message);
-    return;
-  }
-
-  pooldata.pool = p;
-  pooldata.active = TRUE;
- // pooldata.mutex = g_mutex_new ();
-  pooldata.entries = g_hash_table_new (NULL, NULL);
-  //pooldata.sources_no = GPOINTER_TO_INT (job->service);
-  pooldata.job = job;
+  d.job = job;
+  d.entries = g_hash_table_new (NULL, NULL);
 
   registry = grl_registry_get_default ();
-
   sources = grl_registry_get_sources (registry, FALSE);
 
   for (m = sources; m != NULL; m = g_list_next (m))
@@ -173,19 +160,13 @@ query_flickr (GdAccountMinerJob *job,
     ent = g_slice_alloc (sizeof (struct entry));
 
     ent->source = GRL_SOURCE (m->data);
-    ent->folder = NULL;
+    ent->media  = NULL;
     ent->parent = NULL;
+    ent->data = &d;
 
-    g_hash_table_add (pooldata.entries, ent);
-    //pooldata.sources_no--;
+    g_hash_table_add (d.entries, ent);
 
-    if (g_thread_pool_push (pooldata.pool, (gpointer) ent, error) == FALSE)
-    {
-      /* warn but continue */
-      g_warning ("Pool push: %s", (*error)->message);
-      g_error_free (*error);
-      *error = NULL;
-    }
+    account_miner_job_browse_container (ent);
   }
 
   /* Wait for pending threads */
@@ -194,30 +175,24 @@ query_flickr (GdAccountMinerJob *job,
     // dont hurry, wait POOL_WAIT_SEC before asking for state
     g_usleep (G_USEC_PER_SEC * POOL_WAIT_SEC);
 
-    if (g_hash_table_size (pooldata.entries) == 0)
+    if (g_hash_table_size (d.entries) == 0)
     {
-      pooldata.active = FALSE;
-
       g_debug ("No pending job. Quiting query..");
       break;
     }
   }
-  
 
-  /* ==========  Clean up ========== */
+  g_hash_table_destroy (d.entries);
 
-  g_thread_pool_free (pooldata.pool, FALSE, TRUE);
-  pooldata.pool = NULL;
-
-  g_hash_table_destroy (pooldata.entries);
-
-  g_debug ("Ending query_flickr");
+  g_debug ("Ending query_flickr (delete me)");
 }
 
 static GObject *
 create_service (GdMiner *self,
                 GoaObject *object)
-{  
+{
+  /* only prevent from multiple calling */
+  /* TODO add support for multiple calling of refresh_db (remember first account id and compare */
   static gint s = 0;
 
 
@@ -231,99 +206,48 @@ create_service (GdMiner *self,
 }
 
 /* ==================== PRIVATE FUNCTIONS ==================== */
-static void
-pool_push (gpointer data, gpointer user_data)
-{
-  struct entry     *ent   = (struct entry *)      data;
-  struct pool_data *pool  = (struct pool_data *) user_data;
 
-  account_miner_job_browse_container (pool->job, ent, pool);
-}
-
-
-/* FIXME --> delete job argument (is in pool) */
-static void
-account_miner_job_browse_container (GdAccountMinerJob *job,
-                                    struct entry      *entry,
-                                    struct pool_data  *pool)
+void
+account_miner_job_browse_container (struct entry *entry)
 {
   g_return_if_fail (entry != NULL);
-  g_return_if_fail (entry->folder == NULL || GRL_IS_MEDIA (entry->folder));
+  g_return_if_fail (entry->media == NULL || GRL_IS_MEDIA (entry->media));
   g_return_if_fail (entry->parent == NULL || GRL_IS_MEDIA (entry->parent));
   g_return_if_fail (GRL_IS_SOURCE (entry->source));
 
-  g_debug ("Browsing container %s of %s (%s)", entry->folder ? grl_media_get_title (entry->folder) : "[root]",
+  g_debug ("Browsing container %s of %s (%s)", entry->media ? grl_media_get_title (entry->media) : "[root]",
                                           entry->parent ? grl_media_get_title (entry->parent) : "[root]",
                                           grl_source_get_name (entry->source));
 
   /* Skip public source */
   if (g_strcmp0 (grl_source_get_name (entry->source), "Flickr") == 0) {
     g_debug ("Skipping public source");
-    g_hash_table_remove (pool->entries, entry);
+    delete_entry (entry); 
     return;
   }
- 
+
   GrlOperationOptions *ops;
   const GList *keys;
   GError *err = NULL;
-  GList *result, *m;
-
-  GrlMedia *media;
-  struct entry *ent;
 
   /* get possiblly all */
   keys = grl_source_supported_keys (entry->source);
   ops = grl_operation_options_new (grl_source_get_caps (entry->source, GRL_OP_BROWSE));
 
-  result = grl_source_browse_sync (entry->source, entry->folder, keys, ops, NULL);
-
-  for (m = result; m != NULL; m = g_list_next (m))
-  {
-    media = GRL_MEDIA (m->data);//grl_source_resolve_sync (source, GRL_MEDIA (m->data), keys, ops, NULL);
-    account_miner_job_process_entry (pool->job, media, NULL); 
-
-    if (GRL_IS_MEDIA_BOX (media) /* && public == FALSE */)
-    {
-      ent = g_slice_alloc (sizeof (struct entry));
-
-      ent->source = entry->source;
-      ent->folder = g_object_ref (media); 
-      ent->parent = (entry->folder == NULL) ?
-                      NULL : g_object_ref (entry->folder);
-    
-      g_hash_table_add (pool->entries, ent);
-
-      account_miner_job_browse_container(pool->job, ent, pool);
-      //if (g_thread_pool_push (pool->pool, ent, &err) == FALSE)
-      //  g_warning ("Pooling container: %s", err->message);
-    }
-  }
-
-  g_list_free_full (result, g_object_unref);
-
-  if (entry->folder != NULL)
-    g_object_unref (entry->folder);
-  if (entry->parent != NULL)
-    g_object_unref (entry->parent);
-
-  gpointer mem = g_hash_table_lookup (pool->entries, entry);
-  g_slice_free1 (sizeof (struct entry), mem);
-
-  g_hash_table_remove (pool->entries, entry);
-
+  grl_source_browse (entry->source, entry->media,
+                     keys, ops, browse_container_cb, entry);
 
   g_object_unref (ops);
 }
 
 static gboolean
-account_miner_job_process_entry (GdAccountMinerJob *job,
-                                 GrlMedia *entry,
-                                 GError   **error)
+account_miner_job_process_entry (struct entry *entry, GError **error)
 {
-  g_debug ("Got %s %s from source %s", GRL_IS_MEDIA_BOX (entry) ? "box" : "media",
-                                        grl_media_get_title (entry),
-                                        grl_media_get_source (entry));
-/*
+  g_debug ("Got %s %s from source %s", GRL_IS_MEDIA_BOX (entry->media) ? "box" : "media",
+                                        grl_media_get_title (entry->media),
+                                        grl_media_get_source (entry->media));
+
+  /*
   GDateTime *created_time, *updated_time;
   gchar *contact_resource;
   gchar *resource = NULL;
@@ -337,7 +261,7 @@ account_miner_job_process_entry (GdAccountMinerJob *job,
   identifier = g_strdup_printf ("%sflickr:%s",
                                 GRL_IS_MEDIA_BOX (entry) ? "gd:collection:" : "",
                                 id);
-  
+
   // remove from the list of the previous resources
   //g_hash_table_remove (job->previous_resources, identifier);
 
@@ -395,7 +319,7 @@ account_miner_job_process_entry (GdAccountMinerJob *job,
 
 
   if (! GRL_IS_MEDIA_BOX (entry))
-    { 
+    {
       g_warning ("isPartOf undefined!!");
       gchar *parent_resource_urn, *parent_identifier;
       const gchar *parent_id, *mime;
@@ -436,7 +360,7 @@ account_miner_job_process_entry (GdAccountMinerJob *job,
         }
     }
 
-  // insert description 
+  // insert description
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
     (job->connection,
      job->cancellable, error,
@@ -446,7 +370,7 @@ account_miner_job_process_entry (GdAccountMinerJob *job,
   if (*error != NULL)
     goto out;
 
-  // insert filename 
+  // insert filename
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
     (job->connection,
      job->cancellable, error,
@@ -456,7 +380,7 @@ account_miner_job_process_entry (GdAccountMinerJob *job,
   if (*error != NULL)
     goto out;
 
-  // DEV: why? 
+  // DEV: why?
   contact_resource = gd_miner_tracker_utils_ensure_contact_resource
     (job->connection,
      job->cancellable, error,
@@ -465,7 +389,7 @@ account_miner_job_process_entry (GdAccountMinerJob *job,
   if (*error != NULL)
     goto out;
 
-  // insert author 
+  // insert author
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
     (job->connection,
      job->cancellable, error,
@@ -476,7 +400,7 @@ account_miner_job_process_entry (GdAccountMinerJob *job,
   if (*error != NULL)
     goto out;
 
-  // get and insert creation date 
+  // get and insert creation date
   created_time = grl_media_get_creation_date (entry);
   date = gd_iso8601_from_timestamp (g_date_time_to_unix (created_time));
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
@@ -495,9 +419,86 @@ account_miner_job_process_entry (GdAccountMinerJob *job,
 
   if (*error != NULL)
     return FALSE;
-  
+
   g_object_unref (entry);
 */
   return TRUE;
 }
 
+
+/* ==================== Utilities ==================== */
+static void
+browse_container_cb (GrlSource *source,
+                     guint operation_id,
+                     GrlMedia *media,
+                     guint remaining,
+                     gpointer user_data,
+                     const GError *error)
+{
+  if (error != NULL)
+  {
+    g_warning ("%s", error->message);
+    return;
+  }
+
+  struct entry *ent;
+  struct entry *parent_ent= (struct entry *) user_data;
+  GError *err = NULL;
+
+  if (media != NULL)
+  {
+    ent = g_slice_alloc (sizeof (struct entry));
+
+    ent->source = source;
+    ent->media  = media;
+    ent->parent = parent_ent->media; 
+    ent->data   = parent_ent->data;
+
+    g_hash_table_add (ent->data->entries, ent);
+
+    if (GRL_IS_MEDIA_BOX (media) && source != NULL)
+    {
+      account_miner_job_browse_container (ent);
+    }
+    else
+    {
+      account_miner_job_process_entry (ent, &err);
+
+      if (err != NULL)
+      {
+        g_warning ("%s", err->message);
+        g_error_free (err);
+      }
+
+      delete_entry (ent);
+    }
+  }
+
+  /* ===== clean up ===== */
+  if (remaining == 0)
+  {
+    delete_entry (parent_ent);
+  }
+}
+
+void delete_entry (struct entry *ent)
+{
+  g_return_if_fail (ent != NULL);
+
+  if (ent->media != NULL)
+    g_object_unref (ent->media);
+  if (ent->parent != NULL)
+    g_object_unref (ent->parent);
+
+  gpointer mem = g_hash_table_lookup (ent->data->entries, ent);
+
+  if (mem != NULL)
+  {
+    g_hash_table_remove (ent->data->entries, ent);
+    g_slice_free1 (sizeof (struct entry), mem);
+  }
+  else
+  {
+    g_warning ("Attempt to delete wrong entry");
+  }
+}
