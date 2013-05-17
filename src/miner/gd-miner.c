@@ -638,6 +638,7 @@ static void
 gd_miner_refresh_db_real (GdMiner *self)
 {
   GoaDocuments *documents;
+  GoaPhotos *photos;
   GoaAccount *account;
   GoaObject *object;
   const gchar *provider_type;
@@ -663,7 +664,8 @@ gd_miner_refresh_db_real (GdMiner *self)
       acc_objects = g_list_append (acc_objects, g_object_ref (object));
 
       documents = goa_object_peek_documents (object);
-      if (documents == NULL)
+      photos = goa_object_peek_photos (object);
+      if (documents == NULL && photos == NULL)
         continue;
 
       doc_objects = g_list_append (doc_objects, g_object_ref (object));

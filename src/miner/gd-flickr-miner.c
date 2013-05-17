@@ -111,7 +111,6 @@ gd_flickr_miner_class_init (GdFlickrMinerClass *klass)
   GrlRegistry *registry;
   GError *error = NULL;
 
-  /* TODO get and assign provider type from plugin */
   miner_class->goa_provider_type = GOA_PROVIDER_TYPE;
   miner_class->miner_identifier = MINER_IDENTIFIER;
   miner_class->version = MINER_VERSION;
@@ -119,11 +118,7 @@ gd_flickr_miner_class_init (GdFlickrMinerClass *klass)
   miner_class->create_service = create_service;
   miner_class->query = query_flickr;
 
-  /* TODO unload plugins and so on */
-  //miner_class->finalize = gd_flickr_miner_class_finalaze;
-
   grl_init(NULL, NULL);
-
   registry = grl_registry_get_default();
 
   if (! grl_registry_load_plugin_by_id (registry, GRILO_TARGET_PLUGIN, &error))
@@ -232,23 +227,25 @@ account_miner_job_browse_container (struct entry *entry)
   g_return_if_fail (entry->parent == NULL || GRL_IS_MEDIA (entry->parent));
   g_return_if_fail (GRL_IS_SOURCE (entry->source));
 
-  g_debug ("Browsing container %s of %s (from %s)", entry->media ?grl_media_get_title (entry->media) : "root",
-                                          entry->parent ? grl_media_get_title (entry->parent) : "root",
+  g_debug ("Browsing container '%s' [parent: '%s', source '%s']", entry->media ?grl_media_get_title (entry->media) : "root",
+                                          entry->parent ? grl_media_get_title (entry->parent) : "none",
                                           grl_source_get_name (entry->source));
 
   /* Skip public source */
-  if (g_strcmp0 (grl_source_get_name (entry->source), "Flickr") == 0) {
+  if (g_strcmp0 (grl_source_get_name (entry->source), GRILO_PUBLIC_SOURCE_NAME) == 0) {
     g_debug ("Skipping public source");
     delete_entry (entry); 
     return;
   }
 
   GrlOperationOptions *ops;
+  GrlCaps *caps;
   const GList *keys;
 
   /* get possiblly all */
   keys = grl_source_supported_keys (entry->source);
-  ops = grl_operation_options_new (grl_source_get_caps (entry->source, GRL_OP_BROWSE));
+  caps = grl_source_get_caps (entry->source, GRL_OP_BROWSE);
+  ops = grl_operation_options_new (caps);
 
   /* FIXME make the browsing cancellable */
   grl_source_browse (entry->source, entry->media,
@@ -260,7 +257,7 @@ account_miner_job_browse_container (struct entry *entry)
 static gboolean
 account_miner_job_process_entry (struct entry *entry, GError **error)
 {
-  g_debug ("Got %s %s from source %s", GRL_IS_MEDIA_BOX (entry->media) ? "box" : "media",
+  g_debug ("Got %s '%s' from source '%s'", GRL_IS_MEDIA_BOX (entry->media) ? "box" : "media",
                                         grl_media_get_title (entry->media),
                                         grl_media_get_source (entry->media));
 
