@@ -305,7 +305,6 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
   if (entry->parent != NULL)
     {
       gchar *parent_resource_urn, *parent_identifier;
-      const gchar *parent_id, *mime;
 
       parent_identifier = g_strconcat ("gd:collection:flickr:",
                                         grl_media_get_id (entry->parent) , NULL);
@@ -328,21 +327,7 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
 
       if (*error != NULL)
         goto out;
-
-      /* FIXME in photos is no such procedure */
-      mime = gd_filename_to_mime_type (name);
-      if (mime != NULL)
-        {
-          gd_miner_tracker_sparql_connection_insert_or_replace_triple
-            (job->connection,
-             job->cancellable, error,
-             job->datasource_urn, resource,
-             "nie:mimeType", mime);
-
-          if (*error != NULL)
-            goto out;
-        }
-    }
+   }
 
   // insert description
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
@@ -364,6 +349,16 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
   if (*error != NULL)
     goto out;
 
+  // insert mime FIXME - images doesn't have a mime type..
+  gd_miner_tracker_sparql_connection_insert_or_replace_triple
+    (job->connection,
+     job->cancellable, error,
+     job->datasource_urn, resource,
+     "nie:mimeType", grl_media_get_mime (media));
+
+  if (*error != NULL)
+    goto out;
+ 
   contact_resource = gd_miner_tracker_utils_ensure_contact_resource
     (job->connection,
      job->cancellable, error,
@@ -439,7 +434,6 @@ browse_container_cb (GrlSource *source,
     ent = create_entry (media, parent_ent->media, source, parent_ent->data);
 
     account_miner_job_process_entry (ent, &err);
-
     if (err != NULL)
     {
       g_warning ("%s", err->message);
