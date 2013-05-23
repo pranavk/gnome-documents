@@ -30,11 +30,10 @@
 #include "gd-flickr-miner.h"
 
 /** FIXME find out how to create this identifier */
-#define MINER_IDENTIFIER "gd:flickr:miner:30058620-777c-47a3-a19c-a6cdf4a315c4"
+#define MINER_IDENTIFIER "gd:flickr:miner:9c2430466e82e937a386870250044bb9"
 #define MINER_VERSION 1
 
 #define GRILO_TARGET_PLUGIN "grl-flickr"
-#define GRILO_PUBLIC_SOURCE_NAME "Flickr"
 #define GRILO_SOURCE_ID_PREFIX "grl-flickr-"
 
 #define GOA_PROVIDER_TYPE "flickr"
@@ -55,6 +54,7 @@ struct data
 
 /*
  * GrlMedia with it's source and parent and data used by callbacks
+ * TODO - delete source since it's in job->service
  */
 struct entry {
   GrlSource *source;
@@ -62,9 +62,6 @@ struct entry {
   GrlMedia  *parent;
   struct data *data;
 };
-
-inline static const gchar*
-get_goa_id (const gchar *source_id);
 
 static void
 query_flickr (GdAccountMinerJob *job,
@@ -93,10 +90,12 @@ browse_container_cb (GrlSource *source,
                      gpointer user_data,
                      const GError *error);
 
-static inline struct entry *create_entry (GrlMedia *media, GrlMedia *parent,
-                                    GrlSource *source, struct data *data);
+static inline struct entry *
+create_entry (GrlMedia *media, GrlMedia *parent,
+              GrlSource *source, struct data *data);
 
-static inline void delete_entry (struct entry *ent);
+static inline void
+delete_entry (struct entry *ent);
 
 /* ==================== GOBJECT ==================== */
 
@@ -145,9 +144,9 @@ query_flickr (GdAccountMinerJob *job,
   {
     g_debug ("Called query with no source to browse! Query quit.");
 
-    /* TODO is there some domain? */
+    /* TODO some domain? FIXME - handle errors
     g_set_error_literal (error, NULL, 0, "Query with NULL service");
-
+    */
     return;
   }
 
@@ -204,8 +203,11 @@ create_service (GdMiner *self,
   retval = grl_registry_lookup_source (registry, source_id);
 
   /* freeing job calls unref upon this object */
-  if (retval != NULL)
+   if (retval != NULL)
+   {
     retval = g_object_ref (retval);
+    g_debug ("Source %s found", source_id);
+   }
 
   if (source_id != NULL)
     g_free (source_id);
@@ -224,16 +226,8 @@ account_miner_job_browse_container (struct entry *entry)
   g_return_if_fail (entry->parent == NULL || GRL_IS_MEDIA (entry->parent));
   g_return_if_fail (GRL_IS_SOURCE (entry->source));
 
-  g_debug ("Browsing container '%s' [parent: '%s', source '%s']", entry->media ?grl_media_get_title (entry->media) : "root",
-                                          entry->parent ? grl_media_get_title (entry->parent) : "none",
+  g_debug ("Browsing container '%s' [source '%s']", entry->media ?grl_media_get_title (entry->media) : "root",
                                           grl_source_get_name (entry->source));
-
-  /* Skip public source */
-  if (g_strcmp0 (grl_source_get_name (entry->source), GRILO_PUBLIC_SOURCE_NAME) == 0) {
-    g_debug ("Skipping public source");
-    delete_entry (entry); 
-    return;
-  }
 
   GrlOperationOptions *ops;
   GrlCaps *caps;
@@ -254,17 +248,12 @@ account_miner_job_browse_container (struct entry *entry)
 static gboolean
 account_miner_job_process_entry (struct entry *entry, GError **error)
 {
-  g_debug ("Got %s '%s' from source '%s'", GRL_IS_MEDIA_BOX (entry->media) ? "box" : "media",
-                                        grl_media_get_title (entry->media),
-                                        grl_media_get_source (entry->media));
-
-  GDateTime *created_time, *updated_time;
+  GDateTime *created_time;
   gchar *contact_resource;
   gchar *resource = NULL;
   gchar *date, *identifier;
   const gchar *class = NULL, *id, *name;
-  gboolean resource_exists, mtime_changed;
-  gint64 new_mtime;
+  gboolean resource_exists;
 
   GrlMedia *media = entry->media;
   GdAccountMinerJob *job = entry->data->job;
@@ -302,44 +291,24 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
   if (*error != NULL)
     goto out;
 
-/*
-  no changes can be done as far as I know .. or leave it here and just test for NULL..
-
-  updated_time = grl_media_get_modification_date (media);
-  new_mtime = g_date_time_to_unix (updated_time);
-  mtime_changed = gd_miner_tracker_update_mtime (job->connection, new_mtime,
-                                                 resource_exists, identifier, resource,
-                                                 job->cancellable, error);
-
-  if (*error != NULL)
-    goto out;
-
-  //avoid updating the DB if the media already exists and has not
-  //been modified since our last run.
-  //
-  if (!mtime_changed)
-    goto out;
-*/
-
-  //the resource changed - just set all the properties again
+  // insert url
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
     (job->connection,
      job->cancellable, error,
      job->datasource_urn, resource,
      "nie:url", grl_media_get_url (media));
-     /*"nie:url", identifier); */
 
   if (*error != NULL)
     goto out;
 
-      /*
-  if (! GRL_IS_MEDIA_BOX (media))
+  
+  if (entry->parent != NULL)
     {
       gchar *parent_resource_urn, *parent_identifier;
       const gchar *parent_id, *mime;
 
-      parent_id = zpj_skydrive_media_get_parent_id (media);
-      parent_identifier = g_strconcat ("gd:collection:windows-live:skydrive:", parent_id, NULL);
+      parent_identifier = g_strconcat ("gd:collection:flickr:",
+                                        grl_media_get_id (entry->parent) , NULL);
       parent_resource_urn = gd_miner_tracker_sparql_connection_ensure_resource
         (job->connection, job->cancellable, error,
          NULL,
@@ -360,6 +329,7 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
       if (*error != NULL)
         goto out;
 
+      /* FIXME in photos is no such procedure */
       mime = gd_filename_to_mime_type (name);
       if (mime != NULL)
         {
@@ -373,7 +343,6 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
             goto out;
         }
     }
-        */
 
   // insert description
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
@@ -416,14 +385,16 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
 
   // get and insert creation date
   created_time = grl_media_get_creation_date (media);
-  date = gd_iso8601_from_timestamp (g_date_time_to_unix (created_time));
-  gd_miner_tracker_sparql_connection_insert_or_replace_triple
-    (job->connection,
-     job->cancellable, error,
-     job->datasource_urn, resource,
-     "nie:contentCreated", date);
-  g_free (date);
-
+  if (created_time != NULL)
+  {
+    date = gd_iso8601_from_timestamp (g_date_time_to_unix (created_time));
+    gd_miner_tracker_sparql_connection_insert_or_replace_triple
+      (job->connection,
+       job->cancellable, error,
+       job->datasource_urn, resource,
+       "nie:contentCreated", date);
+    g_free (date);
+    }
   if (*error != NULL)
     goto out;
 
@@ -467,21 +438,21 @@ browse_container_cb (GrlSource *source,
   {
     ent = create_entry (media, parent_ent->media, source, parent_ent->data);
 
+    account_miner_job_process_entry (ent, &err);
+
+    if (err != NULL)
+    {
+      g_warning ("%s", err->message);
+      g_error_free (err);
+      err = NULL;
+    }
+
     if (GRL_IS_MEDIA_BOX (media) && source != NULL)
     {
       account_miner_job_browse_container (ent);
     }
     else
     {
-      account_miner_job_process_entry (ent, &err);
-
-      if (err != NULL)
-      {
-        g_warning ("%s", err->message);
-        g_error_free (err);
-        err = NULL;
-      }
-
       delete_entry (ent);
     }
   }
@@ -510,7 +481,6 @@ void delete_entry (struct entry *ent)
   }
 }
 
-
 struct entry *create_entry (GrlMedia *media, GrlMedia *parent,
                                     GrlSource *source, struct data *data)
 {
@@ -529,13 +499,3 @@ struct entry *create_entry (GrlMedia *media, GrlMedia *parent,
 
     return ent;
 }
-
-static const gchar*
-get_goa_id (const gchar *source_id)
-{
-  /* find last occurence of - */
-  return strrchr (source_id, '-');
-
-}
-
-
