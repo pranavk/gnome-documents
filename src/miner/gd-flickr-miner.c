@@ -27,7 +27,6 @@
 #include <goa/goa.h>
 #include <grilo.h>
 
-
 #include "gd-flickr-miner.h"
 
 /** FIXME find out how to create this identifier */
@@ -36,6 +35,8 @@
 
 #define GRILO_TARGET_PLUGIN "grl-flickr"
 #define GRILO_PUBLIC_SOURCE_NAME "Flickr"
+#define GRILO_SOURCE_ID_PREFIX "grl-flickr-"
+
 #define GOA_PROVIDER_TYPE "flickr"
 
 #define POOL_WAIT_SEC 2
@@ -61,6 +62,9 @@ struct entry {
   GrlMedia  *parent;
   struct data *data;
 };
+
+inline static const gchar*
+get_goa_id (const gchar *source_id);
 
 static void
 query_flickr (GdAccountMinerJob *job,
@@ -134,32 +138,25 @@ static void
 query_flickr (GdAccountMinerJob *job,
               GError **error)
 {
-  GrlRegistry *registry;
-  GList *m, *sources;
-
   struct entry *ent;
   struct data  d;
 
-  /* just make sure we wont be called more times, @see create_service */
-  if (GPOINTER_TO_INT (job->service) == 0)
+  if (job->service == NULL)
+  {
+    g_debug ("Called query with no source to browse! Query quit.");
+
+    /* TODO is there some domain? */
+    g_set_error_literal (error, NULL, 0, "Query with NULL service");
+
     return;
+  }
 
   /* data for callback functions */
   d.job     = job;
   d.entries = g_hash_table_new (NULL, NULL);
 
-  registry  = grl_registry_get_default ();
-  sources   = grl_registry_get_sources (registry, FALSE);
-
-  /* browse found sources */
-  /* TODO asynchronous adding of sources? grilo's source-added signal */
-  for (m = sources; m != NULL; m = g_list_next (m))
-  {
-    g_debug ("Got source: %s", grl_source_get_name (GRL_SOURCE (m->data)));
-
-    ent = create_entry (NULL, NULL, GRL_SOURCE (m->data), &d);
-    account_miner_job_browse_container (ent);
-  }
+  ent = create_entry (NULL, NULL, GRL_SOURCE (job->service), &d);
+  account_miner_job_browse_container (ent);
 
   /* Wait for pending browsings */
   /* Explanation: when calling browse, we add it's data it uses into hash.
@@ -178,44 +175,42 @@ query_flickr (GdAccountMinerJob *job,
       break;
     }
   }
-
-  g_hash_table_destroy (d.entries);
-
-  /* we dont return object in create_service
-   * and freeing job attempts to unref job->service */
-  job->service = NULL;
 }
 
 /*
- * GdMiner calls create_service and query on each GOA object of
- * klass->goa_provider_type type, but flickr plugin loads
- * all flickr accounts at once, so all the account would
- * be browsed more than once.
- * create_service therefore returns 1 if it is the first call of query
- * (refresh_db action). All other times it returns 0 (query_flickr then
- * does nothing)
- *
- * FIXME what if order of GOA object changes?
+ * Returns source for browsing or NULL when error is reached
+ * FIXME: what if source is added after this function is called?
  */
-/** Here's the PROBLEM - all media found will be marked in database under the 
- * first GOA account **/
 static GObject *
 create_service (GdMiner *self,
                 GoaObject *object)
 {
-  /* it's a sort of hack, not nice..
-   * only prevent from multiple calling of query */
-  static  gchar first_id[100] = "";
-  const   gchar *cur_id = goa_account_get_id (goa_object_peek_account (object));
 
-  /* is it first call? */
-  if (first_id[0] == 0)
-    stpcpy (first_id, cur_id);
+  GrlRegistry *registry;
+  GrlSource *retval = NULL;
+  gchar *source_id = NULL;
 
-  if (g_strcmp0 (first_id, cur_id) == 0)
-    return GINT_TO_POINTER (1);
-  else
-    return GINT_TO_POINTER (0);
+  GoaAccount *acc = goa_object_peek_account (object);
+
+  if (acc == NULL)
+    return NULL;
+
+  source_id = g_strdup_printf("%s%s", GRILO_SOURCE_ID_PREFIX,
+                                      goa_account_get_id (acc));
+
+  g_debug ("Looking for source %s", source_id);
+
+  registry = grl_registry_get_default ();
+  retval = grl_registry_lookup_source (registry, source_id);
+
+  /* freeing job calls unref upon this object */
+  if (retval != NULL)
+    retval = g_object_ref (retval);
+
+  if (source_id != NULL)
+    g_free (source_id);
+
+  return G_OBJECT (retval);
 }
 
 
@@ -534,3 +529,13 @@ struct entry *create_entry (GrlMedia *media, GrlMedia *parent,
 
     return ent;
 }
+
+static const gchar*
+get_goa_id (const gchar *source_id)
+{
+  /* find last occurence of - */
+  return strrchr (source_id, '-');
+
+}
+
+
