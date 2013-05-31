@@ -197,6 +197,8 @@ query_flickr (GdAccountMinerJob *job,
  *
  * FIXME what if order of GOA object changes?
  */
+/** Here's the PROBLEM - all media found will be marked in database under the 
+ * first GOA account **/
 static GObject *
 create_service (GdMiner *self,
                 GoaObject *object)
@@ -261,7 +263,6 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
                                         grl_media_get_title (entry->media),
                                         grl_media_get_source (entry->media));
 
-  /*
   GDateTime *created_time, *updated_time;
   gchar *contact_resource;
   gchar *resource = NULL;
@@ -270,24 +271,25 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
   gboolean resource_exists, mtime_changed;
   gint64 new_mtime;
 
-  id = grl_media_get_id (entry);
+  GrlMedia *media = entry->media;
+  GdAccountMinerJob *job = entry->data->job;
 
+  id = grl_media_get_id (media);
   identifier = g_strdup_printf ("%sflickr:%s",
-                                GRL_IS_MEDIA_BOX (entry) ? "gd:collection:" : "",
+                                GRL_IS_MEDIA_BOX (media) ? "gd:collection:" : "",
                                 id);
 
   // remove from the list of the previous resources
-  //g_hash_table_remove (job->previous_resources, identifier);
+  g_hash_table_remove (job->previous_resources, identifier);
 
-  name = grl_media_get_title (entry);
+  name = grl_media_get_title (media);
 
-
-  if (GRL_IS_MEDIA_BOX (entry))
+  if (GRL_IS_MEDIA_BOX (media))
     class = "nfo:DataContainer";
   else
-    class = gd_filename_to_rdf_type (name);
-*/
-  /*
+    class = "nmm:Photo";
+  /* TODO on flickr can be videos too */
+
   resource = gd_miner_tracker_sparql_connection_ensure_resource
     (job->connection,
      job->cancellable, error,
@@ -298,7 +300,6 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
   if (*error != NULL)
     goto out;
 
-
   gd_miner_tracker_update_datasource (job->connection, job->datasource_urn,
                                       resource_exists, identifier, resource,
                                       job->cancellable, error);
@@ -306,7 +307,10 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
   if (*error != NULL)
     goto out;
 
-  updated_time = grl_media_get_modification_date (entry);
+/*
+  no changes can be done as far as I know .. or leave it here and just test for NULL..
+
+  updated_time = grl_media_get_modification_date (media);
   new_mtime = g_date_time_to_unix (updated_time);
   mtime_changed = gd_miner_tracker_update_mtime (job->connection, new_mtime,
                                                  resource_exists, identifier, resource,
@@ -315,30 +319,31 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
   if (*error != NULL)
     goto out;
 
-  //avoid updating the DB if the entry already exists and has not
+  //avoid updating the DB if the media already exists and has not
   //been modified since our last run.
   //
   if (!mtime_changed)
     goto out;
+*/
 
   //the resource changed - just set all the properties again
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
     (job->connection,
      job->cancellable, error,
      job->datasource_urn, resource,
-     "nie:url", identifier);
+     "nie:url", grl_media_get_url (media));
+     /*"nie:url", identifier); */
 
   if (*error != NULL)
     goto out;
 
-
-  if (! GRL_IS_MEDIA_BOX (entry))
+      /*
+  if (! GRL_IS_MEDIA_BOX (media))
     {
-      g_warning ("isPartOf undefined!!");
       gchar *parent_resource_urn, *parent_identifier;
       const gchar *parent_id, *mime;
 
-      parent_id = zpj_skydrive_entry_get_parent_id (entry);
+      parent_id = zpj_skydrive_media_get_parent_id (media);
       parent_identifier = g_strconcat ("gd:collection:windows-live:skydrive:", parent_id, NULL);
       parent_resource_urn = gd_miner_tracker_sparql_connection_ensure_resource
         (job->connection, job->cancellable, error,
@@ -373,13 +378,14 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
             goto out;
         }
     }
+        */
 
   // insert description
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
     (job->connection,
      job->cancellable, error,
      job->datasource_urn, resource,
-     "nie:description", grl_media_get_description (entry));
+     "nie:description", grl_media_get_description (media));
 
   if (*error != NULL)
     goto out;
@@ -394,11 +400,10 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
   if (*error != NULL)
     goto out;
 
-  // DEV: why?
   contact_resource = gd_miner_tracker_utils_ensure_contact_resource
     (job->connection,
      job->cancellable, error,
-     job->datasource_urn, grl_media_get_author (entry));
+     job->datasource_urn, grl_media_get_author (media));
 
   if (*error != NULL)
     goto out;
@@ -415,7 +420,7 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
     goto out;
 
   // get and insert creation date
-  created_time = grl_media_get_creation_date (entry);
+  created_time = grl_media_get_creation_date (media);
   date = gd_iso8601_from_timestamp (g_date_time_to_unix (created_time));
   gd_miner_tracker_sparql_connection_insert_or_replace_triple
     (job->connection,
@@ -434,8 +439,6 @@ account_miner_job_process_entry (struct entry *entry, GError **error)
   if (*error != NULL)
     return FALSE;
 
-  g_object_unref (entry);
-*/
   return TRUE;
 }
 
