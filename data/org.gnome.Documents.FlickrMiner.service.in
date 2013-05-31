@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.gnome.Documents.FlickrMiner
+Exec=@libexecdir@/gd-tracker-flickr-miner
