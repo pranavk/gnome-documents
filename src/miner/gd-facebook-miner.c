@@ -26,8 +26,7 @@
 
 #include "gd-facebook-miner.h"
 
-/* FIXME find out how to create this identifier */
-#define MINER_IDENTIFIER "gd:facebook:miner:9c2430466e82e937a386870250044bb9"
+#define MINER_IDENTIFIER "gd:facebook:miner:7735c11213574dbb9a589fe6b9bad06a"
 #define MINER_VERSION 1
 
 #define GOA_PROVIDER_TYPE "facebook"
