@@ -15,6 +15,11 @@ check-local: gnome-documents.desktop
 servicedir = $(datadir)/dbus-1/services
 service_DATA = $(service_in_files:.service.in=.service)
 
+org.gnome.Documents.FacebookMiner.service: org.gnome.Documents.FacebookMiner.service.in Makefile
+	$(AM_V_GEN)	\
+		[ -d $(@D) ] || $(mkdir_p) $(@D) ; \
+		sed -e "s|\@libexecdir\@|$(libexecdir)|" $< > $@.tmp && mv $@.tmp $@
+
 org.gnome.Documents.FlickrMiner.service: org.gnome.Documents.FlickrMiner.service.in Makefile
 	$(AM_V_GEN)	\
 		[ -d $(@D) ] || $(mkdir_p) $(@D) ; \
@@ -31,6 +36,7 @@ org.gnome.Documents.ZpjMiner.service: org.gnome.Documents.ZpjMiner.service.in Ma
 		sed -e "s|\@libexecdir\@|$(libexecdir)|" $< > $@.tmp && mv $@.tmp $@
 
 service_in_files = \
+    org.gnome.Documents.FacebookMiner.service.in \
     org.gnome.Documents.FlickrMiner.service.in \
     org.gnome.Documents.GDataMiner.service.in \
     org.gnome.Documents.ZpjMiner.service.in
