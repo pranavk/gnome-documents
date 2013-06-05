@@ -257,7 +257,7 @@ account_miner_job_process_photo (GdAccountMinerJob *job, GFBGraphPhoto *photo, c
 {
   gchar *photo_id;
   gchar *photo_name;
-  gchar *photo_link;
+  gchar *photo_source;
   gchar *photo_created_time;
   gchar *identifier;
   const gchar *class = "nmm:Photo";
@@ -269,7 +269,7 @@ account_miner_job_process_photo (GdAccountMinerJob *job, GFBGraphPhoto *photo, c
   g_object_get (photo,
                 "id", &photo_id,
                 "name", &photo_name,
-                "link", &photo_link,
+                "source", &photo_source,
                 "created_time", &photo_created_time,
                 NULL);
 
@@ -296,7 +296,7 @@ account_miner_job_process_photo (GdAccountMinerJob *job, GFBGraphPhoto *photo, c
   gd_miner_tracker_sparql_connection_insert_or_replace_triple (job->connection,
                                                                job->cancellable, error,
                                                                job->datasource_urn, resource,
-                                                               "nie:url", photo_link);
+                                                               "nie:url", photo_source);
   if (*error != NULL)
     goto out;
 
@@ -351,7 +351,7 @@ account_miner_job_process_photo (GdAccountMinerJob *job, GFBGraphPhoto *photo, c
  out:
   g_free (photo_id);
   g_free (photo_name);
-  g_free (photo_link);
+  g_free (photo_source);
   g_free (photo_created_time);
   g_free (identifier);
   g_free (resource);
