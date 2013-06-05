@@ -132,11 +132,11 @@ query_facebook (GdAccountMinerJob *job, GError **error)
 static gboolean
 account_miner_job_lookup_album (GdAccountMinerJob *job, GFBGraphAlbum *album, const gchar *creator, GError **error)
 {
-  gchar *album_id;
+  const gchar *album_id;
   gchar *album_name;
   gchar *album_description;
-  gchar *album_link;
-  gchar *album_created_time;
+  const gchar *album_link;
+  const gchar *album_created_time;
   gchar *identifier;
   const gchar *class = "nfo:DataContainer";
   gchar *resource = NULL;
@@ -144,12 +144,12 @@ account_miner_job_lookup_album (GdAccountMinerJob *job, GFBGraphAlbum *album, co
   gchar *contact_resource;
   GList *photos = NULL;
 
+  album_id = gfbgraph_node_get_id (GFBGRAPH_NODE (album));
+  album_link = gfbgraph_node_get_link (GFBGRAPH_NODE (album));
+  album_created_time = gfbgraph_node_get_created_time (GFBGRAPH_NODE (album));
   g_object_get (album,
-                "id", &album_id,
-                "link", &album_link,
                 "name", &album_name,
                 "description", &album_description,
-                "created_time", &album_created_time,
                 NULL);
 
   identifier = g_strdup_printf ("gd:collection:facebook:%s", album_id);
@@ -236,11 +236,8 @@ account_miner_job_lookup_album (GdAccountMinerJob *job, GFBGraphAlbum *album, co
   }
 
  out:
-  g_free (album_id);
   g_free (album_name);
-  g_free (album_link);
   g_free (album_description);
-  g_free (album_created_time);
   g_free (identifier);
   g_free (resource);
 
