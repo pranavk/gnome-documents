@@ -65,12 +65,18 @@ static GObject *
 create_service (GdMiner *self, GoaObject *object)
 {
   GFBGraphGoaAuthorizer *authorizer;
+  GError *error = NULL;
 
   authorizer = gfbgraph_goa_authorizer_new (object);
 
   if (GFBGRAPH_IS_GOA_AUTHORIZER (authorizer)) {
     g_debug ("GFBGraph GOA authorizer created");
     g_object_ref (authorizer);
+  }
+
+  gfbgraph_authorizer_refresh_authorization (GFBGRAPH_AUTHORIZER (authorizer), NULL, &error);
+  if (error != NULL) {
+    g_warning ("Error refreshing authorization (%d): %s", error->code, error->message);
   }
 
   return G_OBJECT (authorizer);
