@@ -91,9 +91,9 @@ query_facebook (GdAccountMinerJob *job, GError **error)
   GList *album_iter = NULL;
   GError *tmp_error = NULL;
 
-  me = gfbgraph_user_get_me (GFBGRAPH_AUTHORIZER (job->service), error);
-  if (*error != NULL) {
-    g_warning ("Error getting \"me\" user");
+  me = gfbgraph_user_get_me (GFBGRAPH_AUTHORIZER (job->service), &tmp_error);
+  if (tmp_error != NULL) {
+    g_warning ("Error getting \"me\" user. Error (%d): %s", tmp_error->code, tmp_error->message);
     goto out;
   }
 
