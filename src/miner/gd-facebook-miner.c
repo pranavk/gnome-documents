@@ -88,6 +88,8 @@ query_facebook (GdAccountMinerJob *job, GError **error)
   GFBGraphUser *me;
   gchar *me_name;
   GList *albums = NULL;
+  GList *album_iter = NULL;
+  GError *tmp_error = NULL;
 
   me = gfbgraph_user_get_me (GFBGRAPH_AUTHORIZER (job->service), error);
   if (*error != NULL) {
@@ -97,24 +99,32 @@ query_facebook (GdAccountMinerJob *job, GError **error)
 
   g_object_get (me, "name", &me_name, NULL);
 
-  albums = gfbgraph_user_get_albums (me, GFBGRAPH_AUTHORIZER (job->service), error);
-  if (*error != NULL) {
-    g_warning ("Error getting albums");
+  albums = gfbgraph_user_get_albums (me, GFBGRAPH_AUTHORIZER (job->service), &tmp_error);
+  if (tmp_error != NULL) {
+    g_warning ("Error getting albums. Error (%d): %s", tmp_error->code, tmp_error->message);
     goto out;
   }
 
-  while (albums) {
+  album_iter = albums;
+  while (album_iter) {
     GFBGraphAlbum *album;
 
-    album = albums->data;
+    album = GFBGRAPH_ALBUM (album_iter->data);
     account_miner_job_lookup_album (job, album, (const gchar*) me_name, error);
 
-    albums = g_list_next (albums);
+    album_iter = g_list_next (album_iter);
   }
 
  out:
+  if (tmp_error != NULL)
+    g_propagate_error (error, tmp_error);
+
+  if (albums != NULL)
+    g_list_free_full (albums, g_object_unref);
+
   if (me_name)
     g_free (me_name);
+
   g_clear_object (&me);
 }
 
