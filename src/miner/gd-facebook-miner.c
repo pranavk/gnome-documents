@@ -143,6 +143,7 @@ account_miner_job_lookup_album (GdAccountMinerJob *job, GFBGraphAlbum *album, co
   gboolean resource_exists;
   gchar *contact_resource;
   GList *photos = NULL;
+  GList *photo_iter = NULL;
 
   album_id = gfbgraph_node_get_id (GFBGRAPH_NODE (album));
   album_link = gfbgraph_node_get_link (GFBGRAPH_NODE (album));
@@ -226,13 +227,14 @@ account_miner_job_lookup_album (GdAccountMinerJob *job, GFBGraphAlbum *album, co
   if (*error != NULL)
     goto out;
 
-  while (photos) {
+  photo_iter = photos;
+  while (photo_iter) {
     GFBGraphPhoto *photo;
 
-    photo = GFBGRAPH_PHOTO (photos->data);
+    photo = GFBGRAPH_PHOTO (photo_iter->data);
     account_miner_job_process_photo (job, photo, (const gchar*) identifier, creator, error);
 
-    photos = g_list_next (photos);
+    photo_iter = g_list_next (photo_iter);
   }
 
  out:
@@ -240,6 +242,9 @@ account_miner_job_lookup_album (GdAccountMinerJob *job, GFBGraphAlbum *album, co
   g_free (album_description);
   g_free (identifier);
   g_free (resource);
+
+  if (photos != NULL)
+    g_list_free_full (photos, g_object_unref);
 
   if (*error != NULL)
     return FALSE;
