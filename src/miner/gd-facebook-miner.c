@@ -175,6 +175,8 @@ account_miner_job_lookup_album (GdAccountMinerJob *job, GFBGraphAlbum *album, co
   if (*error != NULL)
     goto out;
 
+  /* TODO: Check updated time to avoid updating the photo if has not been modified since our last run */
+
   // insert album url
   gd_miner_tracker_sparql_connection_insert_or_replace_triple (job->connection,
                                                                job->cancellable, error,
@@ -292,6 +294,8 @@ account_miner_job_process_photo (GdAccountMinerJob *job, GFBGraphPhoto *photo, c
   if (*error != NULL)
     goto out;
 
+  /* TODO: Check updated time to avoid updating the photo if has not been modified since our last run */
+
   // insert url
   gd_miner_tracker_sparql_connection_insert_or_replace_triple (job->connection,
                                                                job->cancellable, error,
@@ -314,6 +318,7 @@ account_miner_job_process_photo (GdAccountMinerJob *job, GFBGraphPhoto *photo, c
                                                                job->datasource_urn, resource,
                                                                "nie:isPartOf", parent_resource_urn);
   g_free (parent_resource_urn);
+
   if (*error != NULL)
     goto out;
 
