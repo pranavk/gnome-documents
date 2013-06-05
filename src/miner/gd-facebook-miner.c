@@ -273,7 +273,7 @@ account_miner_job_process_photo (GdAccountMinerJob *job, GFBGraphPhoto *photo, c
                 "created_time", &photo_created_time,
                 NULL);
 
-  identifier = g_strdup_printf ("facebook:%s", photo_id);
+  identifier = g_strdup_printf ("facebook:photos:%s", photo_id);
 
   /* remove from the list of the previous resources */
   g_hash_table_remove (job->previous_resources, identifier);
