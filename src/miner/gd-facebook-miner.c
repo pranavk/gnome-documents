@@ -153,7 +153,7 @@ account_miner_job_lookup_album (GdAccountMinerJob *job, GFBGraphAlbum *album, co
                 "description", &album_description,
                 NULL);
 
-  identifier = g_strdup_printf ("gd:collection:facebook:%s", album_id);
+  identifier = g_strdup_printf ("photos:collection:facebook:%s", album_id);
 
   /* remove from the list of the previous resources */
   g_hash_table_remove (job->previous_resources, identifier);
