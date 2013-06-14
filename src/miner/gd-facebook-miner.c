@@ -322,11 +322,10 @@ account_miner_job_process_photo (GdAccountMinerJob *job, GFBGraphPhoto *photo, c
   if (*error != NULL)
     goto out;
 
-  /* insert filename */
   gd_miner_tracker_sparql_connection_insert_or_replace_triple (job->connection,
                                                                job->cancellable, error,
                                                                job->datasource_urn, resource,
-                                                               "nfo:fileName", photo_name);
+                                                               "nie:title", photo_name);
   if (*error != NULL)
     goto out;
 
