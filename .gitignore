@@ -58,3 +58,4 @@ xmldocs.make
 *.patch
 *.sw?
 .emacs.desktop*
+help/
