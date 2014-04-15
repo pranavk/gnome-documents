@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4 -I libgd ${ACLOCAL_FLAGS}
 
-SUBDIRS = help libgd src data po
+SUBDIRS = help libgd src data po tests
 if BUILD_DOCUMENTATION
 SUBDIRS += man
 endif
