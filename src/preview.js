@@ -27,6 +27,7 @@ const Gdk = imports.gi.Gdk;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
 const Gtk = imports.gi.Gtk;
+const LOKDocView = imports.gi.LOKDocView;
 const _ = imports.gettext.gettext;
 
 const Lang = imports.lang;
@@ -43,7 +44,6 @@ const Utils = imports.utils;
 const View = imports.view;
 const WindowMode = imports.windowMode;
 const Presentation = imports.presentation;
-
 const _FULLSCREEN_TOOLBAR_TIMEOUT = 2; // seconds
 
 const PreviewView = new Lang.Class({
@@ -80,7 +80,10 @@ const PreviewView = new Lang.Class({
         this._sw.get_vscrollbar().connect('button-press-event', Lang.bind(this, this._onScrollbarClick));
         this._sw.get_hadjustment().connect('value-changed', Lang.bind(this, this._onAdjustmentChanged));
         this._sw.get_vadjustment().connect('value-changed', Lang.bind(this, this._onAdjustmentChanged));
+
         this.add_named(this._sw, 'view');
+
+        this.LOKView = LOKDocView.View.new ('/opt/libreoffice/instdir/program', null, null);
 
         this._createView();
 
@@ -537,6 +540,21 @@ const PreviewView = new Lang.Class({
         this.view.destroy();
         this._navControls.destroy();
         this._createView();
+    },
+
+    _documentLoaded: function() {
+        log("LOKDocView: document loading finished");
+        // TODO: Call open_document_finish and check for error
+    },
+
+    setDoc: function (doc) {
+        let location = doc.uri.replace ('file://', '');
+        this.setModel(null);
+        this.view.destroy();
+        this._sw.add (this.LOKView);
+        this.LOKView.open_document (location, null, Lang.bind(this, this._documentLoaded),
+                                    null);
+        this.LOKView.show();
     },
 
     setModel: function(model) {
