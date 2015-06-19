@@ -364,13 +364,19 @@ const Embed = new Lang.Class({
     },
 
     _onLoadFinished: function(manager, doc, docModel) {
-        if (!Application.application.isBooks)
-            docModel.set_sizing_mode(EvView.SizingMode.AUTOMATIC);
-        else
-            docModel.set_sizing_mode(EvView.SizingMode.FIT_PAGE);
-        docModel.set_page_layout(EvView.PageLayout.AUTOMATIC);
-        this._toolbar.setModel(docModel);
-        this._preview.setModel(docModel);
+        if(docModel) {
+            if (!Application.application.isBooks)
+                docModel.set_sizing_mode(EvView.SizingMode.AUTOMATIC);
+            else
+                docModel.set_sizing_mode(EvView.SizingMode.FIT_PAGE);
+            docModel.set_page_layout(EvView.PageLayout.AUTOMATIC);
+            log ("this time not");
+            this._toolbar.setModel(docModel);
+            this._preview.setModel(docModel);
+        } else {
+            this._preview.setDoc(doc);
+        }
+
         this._preview.widget.grab_focus();
 
         this._clearLoadTimer();

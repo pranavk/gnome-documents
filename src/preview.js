@@ -27,6 +27,7 @@ const Gdk = imports.gi.Gdk;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
 const Gtk = imports.gi.Gtk;
+const LOKDocView = imports.gi.LOKDocView;
 const _ = imports.gettext.gettext;
 
 const Lang = imports.lang;
@@ -43,7 +44,6 @@ const Utils = imports.utils;
 const View = imports.view;
 const WindowMode = imports.windowMode;
 const Presentation = imports.presentation;
-
 const _FULLSCREEN_TOOLBAR_TIMEOUT = 2; // seconds
 
 const PreviewView = new Lang.Class({
@@ -80,6 +80,10 @@ const PreviewView = new Lang.Class({
         this._sw.get_hadjustment().connect('value-changed', Lang.bind(this, this._onAdjustmentChanged));
         this._sw.get_vadjustment().connect('value-changed', Lang.bind(this, this._onAdjustmentChanged));
         this.widget.add_named(this._sw, 'view');
+        this._sw.connect ('key-press-event', Lang.bind(this, this._onKeyPress));
+        this._sw.connect ('key-release-event', Lang.bind(this, this._onKeyPress));
+        
+        this.LOKView = LOKDocView.View.new ('/opt/libreoffice/instdir/program', null, null);
 
         this._createView();
 
@@ -165,6 +169,10 @@ const PreviewView = new Lang.Class({
                 Application.application.disconnect(presentCurrentId);
                 Application.application.disconnect(nightModeId);
             }));
+    },
+
+    _onKeyPress: function (widget, event) {
+        this.LOKView.post_key (event);
     },
 
     _onLoadStarted: function() {
@@ -379,7 +387,7 @@ const PreviewView = new Lang.Class({
                 this._fsToolbar.hide();
         }
     },
-
+    
     _onWindowModeChanged: function() {
         let windowMode = Application.modeController.getWindowMode();
         if (windowMode != WindowMode.WindowMode.PREVIEW) {
@@ -536,6 +544,15 @@ const PreviewView = new Lang.Class({
         this.view.destroy();
         this._navControls.destroy();
         this._createView();
+    },
+
+    setDoc: function (doc) {
+        let location = doc.uri.replace ('file://', '');
+        this.setModel(null);
+        this.view.destroy();
+        this._sw.add (this.LOKView);
+        this.LOKView.open_document (location);
+        this.LOKView.show();
     },
 
     setModel: function(model) {
@@ -997,7 +1014,7 @@ const PreviewSearchbar = new Lang.Class({
     },
 
     hide: function() {
-        this._previewView.view.find_set_highlight_search(false);
+        //this._previewView.view.find_set_highlight_search(false);
 
         this.searchChangeBlocked = true;
         this.parent();
