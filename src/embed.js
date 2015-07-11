@@ -28,6 +28,7 @@ const Notifications = imports.notifications;
 const Password = imports.password;
 const Preview = imports.preview;
 const Edit = imports.edit;
+const LOKView = imports.lokview;
 const Search = imports.search;
 const Selections = imports.selections;
 const View = imports.view;
@@ -122,6 +123,9 @@ const Embed = new Lang.Class({
 
         this._spinnerBox = new SpinnerBox();
         this._stack.add_named(this._spinnerBox.widget, 'spinner');
+
+        this._lokview = new LOKView.LOKView(this._stackOverlay);
+        this._stack.add_named(this._lokview.widget, 'lokview');
 
         this._stack.connect('notify::visible-child',
                             Lang.bind(this, this._onVisibleChildChanged));
@@ -370,18 +374,19 @@ const Embed = new Lang.Class({
             else
                 docModel.set_sizing_mode(EvView.SizingMode.FIT_PAGE);
             docModel.set_page_layout(EvView.PageLayout.AUTOMATIC);
-            log ("this time not");
             this._toolbar.setModel(docModel);
             this._preview.setModel(docModel);
+            this._stack.set_visible_child_name('preview');
         } else {
-            this._preview.setDoc(doc);
+            this._preview.reset();
+            this._stack.set_visible_child_name('lokview');
         }
 
         this._preview.widget.grab_focus();
-
+        
         this._clearLoadTimer();
         this._spinnerBox.stop();
-        this._stack.set_visible_child_name('preview');
+
     },
 
     _onLoadError: function(manager, doc, message, exception) {
@@ -443,6 +448,7 @@ const Embed = new Lang.Class({
     },
 
     _prepareForPreview: function() {
+        this._preview._createView();
         if (this._edit)
             this._edit.setUri(null);
         if (this._toolbar)
@@ -466,6 +472,13 @@ const Embed = new Lang.Class({
         this._titlebar.add(this._toolbar.widget);
 
         this._stack.set_visible_child_name('edit');
+    },
+
+    _prepareForLOKView: function() {
+        if (this._preview)
+            this._preview.setModel(null);
+
+        this._stack.set_visible_child_name('lokview');
     },
 
     getMainToolbar: function() {

@@ -80,8 +80,6 @@ const PreviewView = new Lang.Class({
         this._sw.get_hadjustment().connect('value-changed', Lang.bind(this, this._onAdjustmentChanged));
         this._sw.get_vadjustment().connect('value-changed', Lang.bind(this, this._onAdjustmentChanged));
         this.widget.add_named(this._sw, 'view');
-        this._sw.connect ('key-press-event', Lang.bind(this, this._onKeyPress));
-        this._sw.connect ('key-release-event', Lang.bind(this, this._onKeyPress));
         
         this.LOKView = LOKDocView.View.new ('/opt/libreoffice/instdir/program', null, null);
 
@@ -169,10 +167,6 @@ const PreviewView = new Lang.Class({
                 Application.application.disconnect(presentCurrentId);
                 Application.application.disconnect(nightModeId);
             }));
-    },
-
-    _onKeyPress: function (widget, event) {
-        this.LOKView.post_key (event);
     },
 
     _onLoadStarted: function() {
@@ -543,16 +537,17 @@ const PreviewView = new Lang.Class({
         this.setModel(null);
         this.view.destroy();
         this._navControls.destroy();
-        this._createView();
     },
 
+    open_document_cb: function() {
+        log ("i am callback");
+        this.LOKView.show();
+    },
+    
     setDoc: function (doc) {
         let location = doc.uri.replace ('file://', '');
-        this.setModel(null);
-        this.view.destroy();
         this._sw.add (this.LOKView);
-        this.LOKView.open_document (location);
-        this.LOKView.show();
+        this.LOKView.open_document (location, null, Lang.bind(this, this.open_document_cb), null);
     },
 
     setModel: function(model) {
